@@ -1,0 +1,354 @@
+# Script to estimate day of year effect on leaf nitrogen content in arctic plants, while controlling for precipitation and plant functional type.
+
+# Loading packages and data ----
+
+library (terra)
+library (tidyverse)
+library (readxl)
+library (geodata)
+library (readr)
+library (brms)
+library (tidybayes)
+library (lubridate)
+library (gridExtra)
+library (grid)
+library (cowplot)
+library (stringr)
+
+#TTT data
+TTT_cleaned_dataset_v1 <- read_csv("data/TTT_cleaned_dataset_v1.csv")
+
+#  load Madi's data
+madi_raw <- read_csv("data/madi.csv")
+
+# load functional trait groupings
+func_groups <- read.csv ("data/func_groups.csv")
+
+# load WorldClim data with the geodata library
+# global precipitation data with 1 km resolution
+precip_year <- worldclim_global (var = "prec", res = 0.5, path = 'data')
+
+
+# define winter months (october - april)
+months <- c(10, 11, 12, 1, 2, 3, 4)
+
+# select precipitation data from winter months
+
+precip_winter <- precip_year[[months]]
+
+# average precipitation across the winter to obtain one value per pixel
+# this ones slow
+precip <- mean(precip_winter)
+
+# load arctic zones map (high arctic, low arctic, sub arctic)
+high_low_arc <- vect ("data/high_low_arctic_boundaries/Arctic_Zones_complete_polygons.shp")
+
+
+# define winter months (october - april)
+months <- c(10, 11, 12, 1, 2, 3, 4)
+
+# select precipitation data from winter months
+
+precip_winter <- precip_year[[months]]
+
+# average precipitation across the winter to obtain one value per pixel
+# this ones slow
+precip <- mean(precip_winter)
+
+# load arctic zones map (high arctic, low arctic, sub arctic)
+high_low_arc <- vect ("data/high_low_arctic_boundaries/Arctic_Zones_complete_polygons.shp")
+
+
+# tidy Madi's data to match other spreadsheets
+madi <- madi_raw %>%
+  # adding lat and lon by site
+  mutate (lat = case_when (
+    grepl ("Kluane Plateau", site) ~ 60.98,
+    grepl ("Qikiqtaruk", site) ~ 69.5971
+  )) %>%
+  mutate (lon = case_when (
+    grepl ("Kluane Plateau", site) ~ -138.5971,
+    grepl ("Qikiqtaruk", site) ~ -138.8939
+  )) %>%
+  # adding deciduous / evergreen info to shrub data
+  mutate (
+    functional_group = case_when(
+      grepl ("Cassiope", latin.genus) ~ "evergreen shrub",
+      grepl ("Salix", latin.genus) ~ "deciduous shrub",
+      grepl ("Betula", latin.genus) ~ "deciduous shrub",
+      grepl ("Dryas integrifolia Vahl", species) ~ "evergreen shrub",
+      TRUE ~ functional_group
+    )
+  ) %>%
+  # change forbs to herbs to match spreadsheet
+  mutate (functional_group = ifelse (functional_group == "forb", "herb", functional_group)) %>%
+  mutate (DayOfYear = yday(measurement.date)) %>%
+  # removing columns to match the ttt and try data
+  select (-c(latin.species, site, measurement.date, percent_C, ...1)) %>%
+  # renaming nitrogen column
+  rename (n = percent_N) %>%
+  rename (Genus = latin.genus) %>%
+  filter (functional_group != "herb") %>%
+  # adding a column for data source
+  mutate (data_source = "Madi")
+
+# clean ttt dataset (select n observations, remove experimental plots, assign PFTs, etc)
+ttt_n <- TTT_cleaned_dataset_v1 %>%
+  # select rows with nitrogen observations
+  filter (Trait == "Leaf nitrogen (N) content per leaf dry mass") %>%
+  # select only 'control' plots
+  filter(
+    Treatment != "warmed"
+    & Treatment != "N fertilized"
+    & Treatment != "greenhouse"
+    & Treatment != "N + warmed"
+  ) %>%
+  # rename species column to match spreadsheet w/ pfts
+  rename (Species = AccSpeciesName) %>%
+  # join ttt data with pft spreadsheet to assign a functional group to each observation
+  left_join (func_groups, by = "Species") %>%
+  # remove trees
+  filter (PlantGrowthForm != "tree") %>%
+  # add deciduou/ evergreen info
+  mutate (PlantGrowthForm = ifelse (
+    PlantGrowthForm == "shrub",
+    paste(LeafPhenology, PlantGrowthForm),
+    PlantGrowthForm
+  )) %>%
+  # add a column for data source
+  mutate (data_source = "Tundra Trait Team") %>%
+  # assign plant funcitonal group to species not specified in spreadsheet
+  mutate (
+    PlantGrowthForm = case_when(
+      grepl ("Lysimachia europaea", Species) ~ "herb",
+      grepl ("Poa sp.", Species) ~ "graminoid",
+      grepl ("Betula divaricata", Species) ~ "deciduous shrub",
+      grepl ("Alchemilla sp", Species) ~ "herb",
+      grepl ("Lactuca alpina", Species) ~ "herb",
+      grepl ("Eutrema edwardsii", Species) ~ "herb",
+      grepl ("Erigeron humilis", Species) ~ "herb",
+      grepl ("Minuartia rossii", Species) ~ "herb",
+      grepl ("Arenaria pseudofrigida", Species) ~ "herb",
+      grepl ("Braya glabella", Species) ~ "herb",
+      grepl ("Silene involucrata", Species) ~ "herb",
+      grepl ("Koenigia hadacii", Species) ~ "herb",
+      grepl ("Saxifraga flagellaris", Species) ~ "herb",
+      grepl ("Taraxacum brachyceras", Species) ~ "herb",
+      grepl ("Ranunculus sulphureus", Species) ~ "herb",
+      grepl ("Cochlearia groenlandica", Species) ~ "herb",
+      grepl ("Festuca sp.", Species) ~ "graminoid",
+      grepl ("Potentilla rubricaulis", Species) ~ "herb",
+      grepl ("Puccinelia sp.", Species) ~ "graminoid",
+      grepl ("Dupontia sp.", Species) ~ "graminoid",
+      grepl ("Pedicularis dasyantha", Species) ~ "herb",
+      grepl ("Ranunculus sulphureus", Species) ~ "herb",
+      grepl ("Braya glabella", Species) ~ "herb",
+      grepl ("Silene uralensis", Species) ~ "herb",
+      grepl ("Silene involucrata", Species) ~ "herb",
+      grepl ("Draba sp.", Species) ~ "herb",
+      grepl ("Draba hirta", Species) ~ "herb",
+      grepl ("Saxifraga hieraciifolia", Species) ~ "herb",
+      grepl ("Saxifraga tenuis", Species) ~ "herb",
+      grepl ("Carex marina", Species) ~ "graminoid",
+      grepl ("Campanula gieseckeana", Species) ~ "herb",
+      grepl ("Saxifraga foliolosa", Species) ~ "herb",
+      grepl ("Arenaria pseudofrigida", Species) ~ "herb",
+      grepl ("Puccinelia sp.", Species) ~ "graminoid",
+      grepl ("Carex sp.", Species) ~ "graminoid",
+      grepl ("Salix sp.", Species) ~ "shrub",
+      grepl ("Valeriana capitata", Species) ~ "herb",
+      grepl ("Sedum roseum", Species) ~ "herb",
+      grepl ("Taraxacum sp.", Species) ~ "herb",
+      grepl ("Harrimanella hypnoides", Species) ~ "herb",
+      grepl ("Persicaria vivipara", Species) ~ "herb",
+      grepl ("Ranunculus pygmaeus", Species) ~ "herb",
+      grepl ("Papaver radicatum", Species) ~ "herb",
+      grepl ("Potentilla pulchella", Species) ~ "herb",
+      grepl ("Polemonium boreale", Species) ~ "herb",
+      grepl ("Chrysosplenium tetrandrum", Species) ~ "herb",
+      grepl ("Ranunculus spitsbergensis", Species) ~ "herb",
+      grepl ("Taraxacum arcticum", Species) ~ "herb",
+      grepl ("Antennaria alpina", Species) ~ "herb",
+      grepl ("Rubus chamaemorous", Species) ~ "herb",
+      grepl ("Andromeda polifolia", Species) ~ "deciduous shrub",
+      grepl ("Linnaea borealis", Species) ~ "herb",
+      grepl ("Artemisia ordosica", Species) ~ "shrub",
+      grepl ("Artemisia wellbyi", Species) ~ "shrub",
+      grepl ("Lespedeza davurica", Species) ~ "herb",
+      grepl ("Orthilia secunda", Species) ~ "herb",
+      grepl ("Rubus saxatilis", Species) ~ "deciduous shrub",
+      grepl ("Euphorbia clusiaefolia", Species) ~ "herb",
+      grepl ("Symphyotrichum oolentangiense", Species) ~ "herb",
+      grepl ("Helianthemum bicknellii", Species) ~ "herb",
+      grepl ("Artemisia ludoviciana", Species) ~ "herb",
+      grepl ("Helianthemum nummularium", Species) ~ "evergreen shrub",
+      grepl ("Linum suffruticosum", Species) ~ "herb",
+      grepl ("Rubus vestitus", Species) ~ "deciduous shrub",
+      grepl ("Rubus ulmifolius", Species) ~ "deciduous srhub",
+      grepl ("Solanum dulcamara", Species) ~ "herb",
+      grepl ("Rubus pubescens", Species) ~ "herb",
+      grepl ("Aralia nudicaulis", Species) ~ "herb",
+      grepl ("Aralia racemosa", Species) ~ "herb",
+      grepl ("Pedicularis canadensis", Species) ~ "herb",
+      grepl ("Rubus caesius", Species) ~ "deciduous shrub",
+      grepl ("Rubus canascens", Species) ~ "deciduous shrub",
+      grepl ("Acinos alpinus", Species) ~ "herb",
+      grepl ("Euphorbia characias", Species) ~ "herb",
+      grepl ("Plomis fructicosa", Species) ~ "evergreen shrub",
+      grepl ("Psoralea bituminosa", Species) ~ "herb",
+      grepl ("Stackhousia brunonis", Species) ~ "herb",
+      grepl ("Isotropis cuneifolia", Species) ~ "herb",
+      grepl ("Mitchella repens", Species) ~ "herb",
+      grepl ("Rubus idaeus", Species) ~ "deciduous shrub",
+      grepl ("Andromeda glaucophylla", Species) ~ "evergreen shrub",
+      grepl ("Rubus hawaiiensis", Species) ~ "herb",
+      grepl ("Rubus plicatus", Species) ~ "deciduous shrub",
+      grepl ("Rubus hispidus", Species) ~ "deciduous shrub",
+      grepl ("Eremophila glabra", Species) ~ "deciduosus shrub",
+      grepl ("Acamptopappus shockleyi", Species) ~ "herb",
+      grepl ("Thymus praecox", Species) ~ "evergreen shrub",
+      grepl ("Genista tinctoria", Species) ~ "deciduous shrub",
+      grepl ("Rubus odoratus", Species) ~ "deciduous shrub",
+      grepl ("Rubus allegheniensis", Species) ~ "deciduous shrub",
+      grepl ("Petalostemum candidum", Species) ~ "herb",
+      grepl ("Reynoutria japonica", Species) ~ "herb",
+      grepl ("Rubus ursinus", Species) ~ "herb",
+      grepl ("Lobelia yuccoides", Species) ~ "deciduous shrub",
+      grepl ("Reynoutria sachalinensis", Species) ~ "herb",
+      grepl ("Ageratina adenophora", Species) ~ "deciduous shrub",
+      grepl ("Rubus arcticus", Species) ~ "deciduous shrub",
+      grepl ("Betula nana", Species) ~ "deciduous shrub",
+      grepl ("Betula fruticosa", Species) ~ "deciduous shrub",
+      grepl ("Betula glandulosa", Species) ~ "deciduous shrub",
+      grepl ("Betula pumila", Species) ~ "deciduous shrub",
+      grepl ("Dryas octopetala", Species) ~ "evergreen shrub",
+      grepl ("Rubus chamaemorus", Species) ~ "herb",
+      grepl ("Salix glauca", Species) ~ "deciduous shrub",
+      grepl ("Alnus incana", Species) ~ "deciduous shrub",
+      grepl ("Sorbus aucuparia", Species) ~ "tree",
+      grepl ("Juniperus communis", Species) ~ "evergreen shrub",
+      grepl ("Salix pulchra", Species) ~ "deciduous shrub",
+      grepl ("Celmisia brevifolia", Species) ~ "herb",
+      grepl ("Celmisia sessiliflora", Species) ~ "herb",
+      grepl ("Senecio kolenatianus", Species) ~ "herb",
+      grepl ("Thymus nummularius", Species) ~ "herb",
+      grepl ("Alchemilla fallax", Species) ~ "herb",
+      grepl ("Hedysarum hedysaroides", Species) ~ "herb",
+      grepl ("Podospermum canum", Species) ~ "herb",
+      grepl ("Primula integrifolia", Species) ~ "herb",
+      TRUE ~ PlantGrowthForm
+    )
+  )
+
+# further cleaning so datasheets can be merged
+ttt <- ttt_n %>%
+  # selecting columns to match Madi's data
+  select(
+    Species,
+    IndividualID,
+    Value,
+    PlantGrowthForm,
+    Latitude,
+    Longitude,
+    data_source,
+    Genus,
+    DayOfYear
+  ) %>%
+  # renaming columns to match Madi's data
+  rename (
+    lat = Latitude,
+    lon = Longitude,
+    functional_group = PlantGrowthForm,
+    sample_id = IndividualID,
+    n = Value,
+    species = Species
+  ) %>%
+  filter (
+    functional_group != "tree"
+    & functional_group != "lichen"
+    & functional_group != "herb"
+    & functional_group != "fern"
+    & functional_group != "moss"
+  ) %>%
+  filter (!is.na(lat))
+
+
+# combining ttt and Madi's data into one big sheet
+obs_n_doy <- rbind (ttt, madi) %>%
+  rename (genus = Genus) %>%
+  filter (
+    genus != "Agrostis"
+    & genus != "Dactylis"
+    & genus != "Melica"
+    & genus != "Phalaris"
+    & genus != "Trichophorum"
+  ) %>%
+  filter (!is.na(DayOfYear))
+
+
+obs_sites <- obs_n_doy %>%
+  group_by (lat, lon) %>%
+  mutate (ID = row_number()) %>%
+  ungroup ()
+
+#Define projections
+WGSCRS <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+# make a vector layer of the coordinates
+n_points <- vect (obs_n_doy, geom = c("lon", "lat"), crs = WGSCRS)
+
+# extract mean precipitation
+arctic_precip <- terra::extract(precip, n_points)
+
+# add precipitation data to trait datasheet
+precip_trait <- obs_n_doy %>%
+  mutate (ID = row_number()) %>%
+  left_join (arctic_precip, by = "ID") %>%
+  rename (mean_precip = mean) %>%
+  filter (!is.na(mean_precip))
+
+zones <- vect ("data/high_low_arctic_boundaries/Arctic_Zones_complete_polygons.shp")
+#crs (zones)
+
+# re-projecting coordinates to the top down view of arctic
+n_points_proj <- project (n_points, "EPSG:3408")
+
+# extract zone
+n_points_zone <- terra::extract(zones, n_points_proj) %>%
+  select (id.y, Zone) %>%
+  rename (ID = id.y, zone = Zone)
+
+# add zone data to trait datasheet
+n_precip_zones <- precip_trait %>%
+  left_join (n_points_zone, by = "ID") %>%
+  # removing points below sub arctic
+  filter (!is.na(zone)) %>%
+  # divide nitrogen by 10 so that units are % instead of mg/g
+  mutate (leafn = n / 10) %>%
+  mutate (DayOfYear = as.numeric (DayOfYear)) %>%
+  filter (!is.na(DayOfYear))
+
+precip_pft_doy_mod <- brm (n ~ mean_precip * functional_group + (1 |
+                                                                   genus) + (1 | DayOfYear),
+                           data = n_precip_zones)
+
+# check model outputs and assumptions
+summary (precip_pft_doy_mod)
+plot (precip_pft_doy_mod) # yay happy fuzzy caterpillars
+pp_check (precip_pft_doy_mod)
+
+precip_pft_doy_mod2 <- brm (n ~ mean_precip * functional_group + DayOfYear + (1 |
+                                                                                genus), data = n_precip_zones)
+
+# check model outputs and assumptions
+summary (precip_pft_doy_mod2)  # day of year has a significant negative effect (-0.12 - -0.18)
+plot (precip_pft_doy_mod2) # yay happy fuzzy caterpillars
+pp_check (precip_pft_doy_mod2)
+
+precip_pft_doy_mod3 <- brm (n ~ mean_precip * functional_group * DayOfYear + (1 |
+                                                                                genus), data = n_precip_zones)
+
+# check model outputs and assumptions
+summary (precip_pft_doy_mod3)
+plot (precip_pft_doy_mod3) # yay happy fuzzy caterpillars
+pp_check (precip_pft_doy_mod3)
