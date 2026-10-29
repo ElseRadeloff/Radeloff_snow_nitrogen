@@ -71,16 +71,9 @@ phenology_concept_date <- c("April 9", "May 29", "July 18", "September 6")
     )
 )
 
-# theme (legend.title = element_blank(),
-#        axis.text = element_text (size = 18),
-#        axis.title=element_text(size=18,face="bold"),
-#        legend.text = element_text (size = 18),
-#        axis.title.x = element_text(margin = margin(t = 20)),  # Adjust x-axis label margin
-#        axis.title.y = element_text(margin = margin(r = 20))))
-# intercept is 7.2, and slope is -0.021 based on linear model with snowfence_salix data (n~doy)
-
 ggsave(
   "graphs/Figure7_phenology_conceptual_diagram.png",
   width = 7,
-  height = 5
+  height = 5, 
+  dpi = 600
 )
