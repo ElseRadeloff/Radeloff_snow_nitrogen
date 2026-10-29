@@ -147,36 +147,13 @@ snowfence_salix <- snowfence_salix %>%
 
 ggsave (doy_n, filename = "graphs/FigureS4_doy_n.png")
 
-
-# legend.text = element_text (size = 20),
-# axis.text = element_text (size = 20),
-# axis.title = element_text(size=20,face="bold"),
-# axis.title.x = element_text(margin = margin(t = 20)),  # Adjust x-axis label margin
-# axis.title.y = element_text(margin = margin(r = 20)),
-# axis.ticks.length = unit (0.25, "cm"),
-# axis.ticks = element_line(size = 2),
-# axis.line = element_line(size = 2)
-
-
-#Models ----
-
+# Models ----
 
 ### Location model ----
 
-location_mod <- brm(n ~ treat * location + (1 |
-                                              plot) + (1 | doy), data = snowfence_salix)
-
-#test <- read.csv("C:/Users/else5/OneDrive/Desktop/Dissertation/test_data_2.csv")
-#test_location_mod <- brm(n ~ treat * location + (1|plot) + (1|doy), data = test)
-
-#summary (test_location_mod)
-
-#test3 <- read.csv("C:/Users/else5/OneDrive/Desktop/Dissertation/test_data_3.csv")
-#test_location_mod3 <- brm(n ~ treat * location + (1|plot) + (1|doy), data = test3)
-
-#summary (test_location_mod3)
-
-#write.csv(snowfence_salix, "C:/Users/else5/OneDrive/Desktop/Dissertation/test_data.csv")
+location_mod <- brm(n ~ treat * location +
+                      (1 |
+                         plot) + (1 | doy), data = snowfence_salix)
 
 summary (location_mod)
 
@@ -188,15 +165,15 @@ random_effects_snowfence_location <- ranef(location_mod)
 print(random_effects_snowfence_location)
 
 # save model
+
 #saveRDS(location_mod, "models/snowfence_location_mod.RDS")
 
 location_mod <- readRDS ("models/snowfence_location_mod.RDS")
 
-
 ## Species model ----
 
-species_mod <- brm(n ~ treat * plant_type + (1 |
-                                               plot) + (1 | doy), data = toolik)
+species_mod <- brm(n ~ treat * plant_type +
+                     (1 | plot) + (1 | doy), data = toolik)
 
 summary (species_mod)
 
@@ -204,12 +181,12 @@ plot (species_mod)  # caterpillar plots
 pp_check(species_mod)  # posterior predictive checks
 
 # save model
+
 #saveRDS(species_mod, "models/snowfence_pft_mod.RDS")
 
 species_mod <- readRDS ('models/snowfence_pft_mod.RDS')
 
-
-# Graphing model reults ----
+# Graphing model results ----
 
 ## location mod ----
 location_mod <- readRDS("models/snowfence_location_mod.RDS")
@@ -388,7 +365,6 @@ location_mod_fit3 <- location_mod_fit2 %>%
     )
   )
 
-
 # plotting!!!!!!!!!!!!!!!!!!
 (
   location_mod_plot <- ggplot (
@@ -433,23 +409,13 @@ location_mod_fit3 <- location_mod_fit2 %>%
     )
 )
 
-#legend.key.spacing.y = unit(0.3, "cm")))
-#axis.text = element_text (size = 20),
-#axis.title=element_text(size = 20, face = "bold"),
-#legend.text = element_text (size = 18),
-#axis.title.x = element_text(margin = margin(t = 20)),  # Adjust x-axis label margin
-#axis.title.y = element_text(margin = margin(r = 20)),
-#axis.ticks.length=unit(.25, "cm"),
-#axis.ticks = element_line(size = 2),
-#axis.line = element_line(size = 2))
-
 ggsave(
   location_mod_plot,
   filename = "graphs/Figure3_snowfence_location_mod_plot.png",
   width = 7,
-  height = 5
+  height = 5, 
+  dpi = 600
 )
-
 
 ## species mod ----
 
@@ -617,25 +583,10 @@ species_mod_fit3 <- species_mod_fit2 %>%
     )
 )
 
-#   theme_mygraphs()) +
-#   theme(legend.title = element_blank(),
-#       legend.position = c(0.81,0.23))#,  # Move legend to the right
-#         legend.key.spacing.y = unit(0.3, "cm"),
-#         legend.text = element_text (size = 20),
-#         axis.text = element_text (size = 20),
-#         axis.title = element_text(size=20,face="bold"),
-#         #legend.text = element_text (size = 18),
-#         axis.title.x = element_text(margin = margin(t = 20)),  # Adjust x-axis label margin
-#         axis.title.y = element_text(margin = margin(r = 20)),
-#         axis.ticks.length = unit (0.25, "cm"),
-#         axis.ticks = element_line(size = 2),
-#         axis.line = element_line(size = 2))
-
 ggsave(
   species_mod_plot,
   filename = "graphs/Figure4_snowfence_species_mod_plot.png",
   width = 7,
-  height = 5
+  height = 5, 
+  dpi = 600
 )
-
-### test
